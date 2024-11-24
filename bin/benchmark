@@ -1,0 +1,83 @@
+#!/usr/bin/env ruby
+
+# frozen_string_literal: true
+
+require_relative "../lib/omnicache"
+require "fast_cache"
+require "lru_redux"
+require "mini_cache"
+require "active_support"
+require "securerandom"
+require "benchmark"
+
+def write_method(cache)
+  if cache.respond_to?(:write)
+    :write
+  elsif cache.respond_to?(:set)
+    :set
+  else
+    :[]=
+  end
+end
+
+def read_method(cache)
+  if cache.respond_to?(:read)
+    :read
+  elsif cache.respond_to?(:get)
+    :get
+  else
+    :[]
+  end
+end
+
+# a simple no-op serializer
+class IdentitySerializer
+  def self.dump(value)
+    value
+  end
+
+  def self.load(value)
+    value
+  end
+end
+
+def run_test(value)
+  caches = {
+    "OmniCache" => OmniCache::Store.new,
+    "OmniCache (non-threadsafe)" => OmniCache::Store.new(threadsafe: false),
+    "OmniCache (identity, non-threadsafe)" => OmniCache::Store.new(serializer: IdentitySerializer, threadsafe: false),
+    "MiniCache" => MiniCache::Store.new,
+    "LruRedux" => LruRedux::Cache.new(1_000_000_000),
+    "FastCache" => FastCache::Cache.new(1_000_000_000, 1_000_000_000),
+    "MemoryStore" => ActiveSupport::Cache::MemoryStore.new
+  }
+
+  Benchmark.bmbm do |bm|
+    caches.each do |name, cache|
+      write_method = write_method(cache)
+      read_method = read_method(cache)
+
+      bm.report name do
+        100_000.times do
+          k = "key-#{rand(200)}"
+          cache.send(write_method, k, value)
+          cache.send(read_method, k)
+        end
+      end
+    end
+  end
+end
+
+puts "100-character string"
+puts "--------------------"
+puts
+
+run_test(SecureRandom.hex(50))
+
+puts
+puts
+puts "Array of 10 UUIDs"
+puts "-----------------"
+puts
+
+run_test(Array.new(10) { SecureRandom.uuid })
