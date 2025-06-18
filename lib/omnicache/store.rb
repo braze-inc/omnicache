@@ -42,56 +42,74 @@ module OmniCache
     # Reads a value from the store
     # @param key [String | Symbol] The key to read
     def read(key)
-      key = key.to_s
-      entry = maybe_threadsafe do
-        entry = @is_lru ? @data.delete(key) : @data[key]
-        return nil if entry.nil?
-
-        if entry.expired?
-          @data.delete(key) unless @is_lru # we already deleted it if LRU
-          subtract_size(key, entry)
-          return nil
-        end
-
-        @data[key] = entry if @is_lru
-        entry
-      end
-
-      @serializer.load(entry.value)
+      maybe_threadsafe { get_value(key.to_s) }
     end
 
     alias [] read
     alias get read
 
-    def write(key, value, ttl_seconds: nil)
-      key = key.to_s
+    # Reads multiple values at once from the store
+    # @param keys [Array<String>] The keys to read
+    # @return [Hash] A hash mapping the keys provided to the values found
+    def read_multi(*keys)
       maybe_threadsafe do
-        if @is_lru || value.nil?
-          existing = @data.delete(key)
-          subtract_size(key, existing)
+        keys.each_with_object({}) do |key, results|
+          value = get_value(key.to_s)
+          if value
+            results[key] = value
+          end
         end
-
-        serialized_value = @serializer.dump(value)
-        return nil if serialized_value.nil?
-
-        entry = Entry.new(
-          serialized_value,
-          ttl_seconds: ttl_seconds || @default_ttl_seconds
-        )
-
-        @data[key] = entry
-        add_size(key, entry)
-
-        adjust_size if @is_lru
       end
-      value
+    end
+
+    def write(key, value, ttl_seconds: nil)
+      normalized_key = key.to_s
+      maybe_threadsafe do
+        delete_entry(normalized_key) if @is_lru || value.nil?
+        entry = create_entry(normalized_key, value, ttl_seconds)
+        adjust_size if @is_lru
+        if entry
+          value
+        end
+      end
     end
 
     alias []= write
     alias set write
 
+    # Writes multiple values at once to the store
+    # @param entries [Hash] A hash mapping keys to values to write
+    # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
+    # @return [Hash] A hash mapping the keys provided to the values written
+    def write_multi(entries, ttl_seconds: nil)
+      maybe_threadsafe do
+        results = entries.each_with_object({}) do |(key, value), hash|
+          normalized_key = key.to_s
+          delete_entry(normalized_key) if @is_lru || value.nil?
+          entry = create_entry(normalized_key, value, ttl_seconds)
+          if entry
+            hash[key] = value
+          end
+        end
+        adjust_size if @is_lru
+        results
+      end
+    end
+
     def fetch(key, ttl_seconds: nil)
       read(key) || write(key, yield, ttl_seconds: ttl_seconds)
+    end
+
+    # Deletes a value from the store
+    # @param key [String] The key to delete
+    # @return [Object|nil] The deleted value if it existed, nil otherwise
+    def delete(key)
+      maybe_threadsafe do
+        entry = delete_entry(key.to_s)
+        if entry
+          @serializer.load(entry.value)
+        end
+      end
     end
 
     def clear
@@ -161,6 +179,40 @@ module OmniCache
       else
         yield
       end
+    end
+
+    def get_value(key)
+      entry = @is_lru ? @data.delete(key) : @data[key]
+      return nil if entry.nil?
+
+      if entry.expired?
+        @data.delete(key) unless @is_lru # we already deleted it if LRU
+        subtract_size(key, entry)
+        return nil
+      end
+
+      @data[key] = entry if @is_lru
+      @serializer.load(entry.value)
+    end
+
+    def create_entry(key, value, ttl_seconds)
+      serialized_value = @serializer.dump(value)
+      return nil if serialized_value.nil?
+
+      entry = Entry.new(
+        serialized_value,
+        ttl_seconds: ttl_seconds || @default_ttl_seconds
+      )
+
+      @data[key] = entry
+      add_size(key, entry)
+      entry
+    end
+
+    def delete_entry(key)
+      entry = @data.delete(key)
+      subtract_size(key, entry)
+      entry
     end
   end
 end
