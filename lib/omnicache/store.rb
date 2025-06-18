@@ -67,6 +67,7 @@ module OmniCache
       maybe_threadsafe do
         delete_entry(normalized_key) if @is_lru || value.nil?
         entry = create_entry(normalized_key, value, ttl_seconds)
+        adjust_size if @is_lru
         if entry
           value
         end
@@ -77,19 +78,21 @@ module OmniCache
     alias set write
 
     # Writes multiple values at once to the store
-    # @param hash [Hash] A hash mapping keys to values to write
+    # @param entries [Hash] A hash mapping keys to values to write
     # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
     # @return [Hash] A hash mapping the keys provided to the values written
-    def write_multi(hash, ttl_seconds: nil)
+    def write_multi(entries, ttl_seconds: nil)
       maybe_threadsafe do
-        hash.each_with_object({}) do |(key, value), results|
+        results = entries.each_with_object({}) do |(key, value), hash|
           normalized_key = key.to_s
           delete_entry(normalized_key) if @is_lru || value.nil?
           entry = create_entry(normalized_key, value, ttl_seconds)
           if entry
-            results[key] = value
+            hash[key] = value
           end
         end
+        adjust_size if @is_lru
+        results
       end
     end
 
@@ -203,7 +206,6 @@ module OmniCache
 
       @data[key] = entry
       add_size(key, entry)
-      adjust_size if @is_lru
       entry
     end
 
