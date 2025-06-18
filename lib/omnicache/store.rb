@@ -42,7 +42,7 @@ module OmniCache
     # Reads a value from the store
     # @param key [String | Symbol] The key to read
     def read(key)
-      maybe_threadsafe { get_value(key) }
+      maybe_threadsafe { get_value(key.to_s) }
     end
 
     alias [] read
@@ -54,7 +54,7 @@ module OmniCache
     def read_multi(*keys)
       maybe_threadsafe do
         keys.each_with_object({}) do |key, results|
-          value = get_value(key)
+          value = get_value(key.to_s)
           if value
             results[key] = value
           end
@@ -63,9 +63,10 @@ module OmniCache
     end
 
     def write(key, value, ttl_seconds: nil)
+      normalized_key = key.to_s
       maybe_threadsafe do
-        delete_entry(key) if @is_lru || value.nil?
-        entry = create_entry(key, value, ttl_seconds)
+        delete_entry(normalized_key) if @is_lru || value.nil?
+        entry = create_entry(normalized_key, value, ttl_seconds)
         if entry
           value
         end
@@ -82,8 +83,9 @@ module OmniCache
     def write_multi(hash, ttl_seconds: nil)
       maybe_threadsafe do
         hash.each_with_object({}) do |(key, value), results|
-          delete_entry(key) if @is_lru || value.nil?
-          entry = create_entry(key, value, ttl_seconds)
+          normalized_key = key.to_s
+          delete_entry(normalized_key) if @is_lru || value.nil?
+          entry = create_entry(normalized_key, value, ttl_seconds)
           if entry
             results[key] = value
           end
@@ -100,7 +102,7 @@ module OmniCache
     # @return [Object|nil] The deleted value if it existed, nil otherwise
     def delete(key)
       maybe_threadsafe do
-        entry = delete_entry(key)
+        entry = delete_entry(key.to_s)
         if entry
           @serializer.load(entry.value)
         end
@@ -177,7 +179,6 @@ module OmniCache
     end
 
     def get_value(key)
-      key = key.to_s
       entry = @is_lru ? @data.delete(key) : @data[key]
       return nil if entry.nil?
 
@@ -192,7 +193,6 @@ module OmniCache
     end
 
     def create_entry(key, value, ttl_seconds)
-      key = key.to_s
       serialized_value = @serializer.dump(value)
       return nil if serialized_value.nil?
 
@@ -208,7 +208,6 @@ module OmniCache
     end
 
     def delete_entry(key)
-      key = key.to_s
       entry = @data.delete(key)
       subtract_size(key, entry)
       entry
