@@ -97,8 +97,8 @@ RSpec.describe OmniCache::Store do
       store.write("key1", values)
       store.write_multi({ "key2" => values })
       values << 4
-      expect(store.read("key1")).to eq([1, 2, 3, 4])
-      expect(store.read("key2")).to eq([1, 2, 3, 4])
+      expect(store.read("key1")).to be(values)
+      expect(store.read("key2")).to be(values)
     end
   end
 
