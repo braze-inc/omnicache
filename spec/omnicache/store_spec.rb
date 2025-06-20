@@ -85,6 +85,10 @@ RSpec.describe OmniCache::Store do
       expect(store.read_multi("key", "key2")).to eq("key" => "value")
     end
 
+    it "returns an empty hash if no keys exist when using read_multi" do
+      expect(store.read_multi("key", "key2", "key3")).to eq({})
+    end
+
     it "can delete a value from the store" do
       store.write("key", "value")
       expect(store.delete("key")).to eq("value")
