@@ -42,7 +42,12 @@ module OmniCache
     # Reads a value from the store
     # @param key [String | Symbol] The key to read
     def read(key)
-      maybe_threadsafe { get_value(key.to_s) }
+      maybe_threadsafe do
+        entry = get_entry(key.to_s)
+        if entry
+          @serializer.load(entry.value)
+        end
+      end
     end
 
     alias [] read
@@ -54,9 +59,9 @@ module OmniCache
     def read_multi(*keys)
       maybe_threadsafe do
         keys.each_with_object({}) do |key, results|
-          value = get_value(key.to_s)
-          if value
-            results[key] = value
+          entry = get_entry(key.to_s)
+          if entry
+            results[key] = @serializer.load(entry.value)
           end
         end
       end
@@ -181,7 +186,7 @@ module OmniCache
       end
     end
 
-    def get_value(key)
+    def get_entry(key)
       entry = @is_lru ? @data.delete(key) : @data[key]
       return nil if entry.nil?
 
@@ -192,7 +197,7 @@ module OmniCache
       end
 
       @data[key] = entry if @is_lru
-      @serializer.load(entry.value)
+      entry
     end
 
     def create_entry(key, value, ttl_seconds)

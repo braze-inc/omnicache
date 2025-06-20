@@ -37,6 +37,18 @@ RSpec.describe OmniCache::Store do
       expect(store.read_multi("key1", "key2")).to eq("key1" => "value1", "key2" => "value2")
     end
 
+    it "can store and retrieve falsey values" do
+      store.write("false-value", false)
+      store.write("nil-value", nil)
+      expect(store.read("false-value")).to be(false)
+      expect(store.read("nil-value")).to be_nil
+    end
+
+    it "can store and retrieve multiple falsey values at once" do
+      store.write_multi({ "false-value" => false, "nil-value" => nil })
+      expect(store.read_multi("false-value", "nil-value")).to eq("false-value" => false, "nil-value" => nil)
+    end
+
     it "coerces keys to strings" do
       store.write(123, "value")
       expect(store.read(123)).to eq("value")
@@ -66,6 +78,11 @@ RSpec.describe OmniCache::Store do
         expect(store.read("key")).to be_nil
         expect(store.read_multi("key2")).to eq({})
       end
+    end
+
+    it "returns only existing keys when using read_multi" do
+      store.write("key", "value")
+      expect(store.read_multi("key", "key2")).to eq("key" => "value")
     end
 
     it "can delete a value from the store" do
