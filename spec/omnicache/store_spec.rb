@@ -107,6 +107,47 @@ RSpec.describe OmniCache::Store do
     it "returns write_multi results with the given keys" do
       expect(store.write_multi({ key1: "value1", "key2" => "value2" })).to eq({ key1: "value1", "key2" => "value2" })
     end
+
+    it "returns the cached value when using fetch" do
+      store.write("key", "value")
+      expect(store.fetch("key") { 1 + 1 }).to eq("value")
+    end
+
+    it "returns and stores the result of the block when fetch doesn't find the key" do
+      expect(store.fetch("key") { 1 + 1 }).to eq(2)
+      expect(store.read("key")).to eq(2)
+    end
+
+    it "uses the expires_in option when using fetch" do
+      store.fetch("key", expires_in: 10) { "value" }
+      expect(store.read("key")).to eq("value")
+      Timecop.freeze(Time.now + 20) do
+        expect(store.read("key")).to be_nil
+      end
+    end
+
+    it "raises an error if expires_in is not an Integer when using fetch" do
+      expect { store.fetch("key", expires_in: "1") }.to raise_error(ArgumentError, ":expires_in must be an Integer")
+    end
+
+    it "uses the expires_at option when using fetch" do
+      store.fetch("key", expires_at: Time.now + 10) { "value" }
+      expect(store.read("key")).to eq("value")
+      Timecop.freeze(Time.now + 20) do
+        expect(store.read("key")).to be_nil
+      end
+    end
+
+    it "raises an error if expires_at is not a Time when using fetch" do
+      expect { store.fetch("key", expires_at: 10) }.to raise_error(ArgumentError, ":expires_at must be a Time")
+    end
+
+    it "raises an error if both expires_in and expires_at are provided when using fetch" do
+      expect { store.fetch("key", expires_in: 10, expires_at: Time.now + 20) }.to raise_error(
+        ArgumentError,
+        "Either :expires_in or :expires_at can be supplied, but not both"
+      )
+    end
   end
 
   context "with a custom serializer" do
