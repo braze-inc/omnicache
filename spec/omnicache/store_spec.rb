@@ -130,10 +130,6 @@ RSpec.describe OmniCache::Store do
       expect { store.fetch("key", expires_in: "1") }.to raise_error(ArgumentError, ":expires_in must be an Integer")
     end
 
-    it "raises an error if expires_in is negative when using fetch" do
-      expect { store.fetch("key", expires_in: -10) }.to raise_error(ArgumentError, ":expires_in cannot be negative")
-    end
-
     it "uses the expires_at option when using fetch" do
       store.fetch("key", expires_at: Time.now + 10) { "value" }
       expect(store.read("key")).to eq("value")

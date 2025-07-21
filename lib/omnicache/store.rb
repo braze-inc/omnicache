@@ -122,10 +122,6 @@ module OmniCache
           raise ArgumentError, ":expires_in must be an Integer"
         end
 
-        if options[:expires_in].negative?
-          raise ArgumentError, ":expires_in cannot be negative"
-        end
-
         ttl_seconds = options[:expires_in]
       elsif options[:expires_at]
         unless options[:expires_at].is_a?(Time)
