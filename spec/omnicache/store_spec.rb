@@ -24,7 +24,13 @@ RSpec.describe OmniCache::Store do
     end
   end
 
+  shared_context "without Datadog" do
+    before { hide_const("Datadog::Tracing") }
+  end
+
   context "with the default configuration" do
+    include_context "without Datadog"
+
     let(:store) { described_class.new }
 
     it "can store and retrieve a value" do
@@ -151,6 +157,8 @@ RSpec.describe OmniCache::Store do
   end
 
   context "with a custom serializer" do
+    include_context "without Datadog"
+
     let(:serializer) { identity_serializer }
     let(:store) { described_class.new(serializer: serializer) }
 
@@ -165,6 +173,8 @@ RSpec.describe OmniCache::Store do
   end
 
   context "with max_entries set" do
+    include_context "without Datadog"
+
     let(:store) { described_class.new(max_entries: 2) }
 
     describe "using #read & #write" do
@@ -222,6 +232,8 @@ RSpec.describe OmniCache::Store do
   end
 
   context "with max_size_bytes set" do
+    include_context "without Datadog"
+
     let(:store) { described_class.new(max_size_bytes: 20, serializer: string_serializer) }
 
     describe "using #read & #write" do
@@ -290,6 +302,97 @@ RSpec.describe OmniCache::Store do
     it "updates current_size_bytes when a key is deleted" do
       expect { store.write("key", "value") }.to change(store, :current_size_bytes).to be > 0
       expect { store.delete("key") }.to change(store, :current_size_bytes).to(0)
+    end
+  end
+
+  context "when Datadog is available" do
+    let(:store) { described_class.new }
+    let(:mock_tracer) { instance_double(Datadog::Tracing::Tracer) }
+    let(:mock_span) { instance_double(Datadog::Tracing::Span) }
+
+    before do
+      allow(Datadog::Tracing).to receive(:tracer).and_return(mock_tracer)
+    end
+
+    it "traces read and write" do
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "read")).and_yield(mock_span)
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "write")).and_yield(mock_span)
+      allow(mock_span).to receive(:set_tag)
+
+      store.write("test_key", "test_value")
+      expect(store.read("test_key")).to eq("test_value")
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "read"))
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "write"))
+      expect(mock_span).to have_received(:set_tag).with("key", "test_key").twice
+    end
+
+    it "traces read_multi and write_multi" do
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "write_multi")).and_yield(mock_span)
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "read_multi")).and_yield(mock_span)
+      allow(mock_span).to receive(:set_tag)
+
+      store.write_multi({ "key1" => "value1", "key2" => "value2" })
+      expect(store.read_multi("key1", "key2")).to eq({ "key1" => "value1", "key2" => "value2" })
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "read_multi"))
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "write_multi"))
+      expect(mock_span).to have_received(:set_tag).with("keys", "key1,key2").twice
+    end
+
+    it "traces fetch" do
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "fetch")).and_yield(mock_span)
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "read")).and_yield(mock_span)
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "write")).and_yield(mock_span)
+      allow(mock_span).to receive(:set_tag).with(any_args)
+
+      expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
+
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "fetch"))
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "read"))
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "write"))
+      expect(mock_span).to have_received(:set_tag).with("key", "test_key").twice
+    end
+
+    it "traces delete" do
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "delete")).and_yield(mock_span)
+      allow(mock_span).to receive(:set_tag)
+
+      store.delete("test_key")
+
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "delete"))
+      expect(mock_span).to have_received(:set_tag).with("key", "test_key")
+    end
+
+    it "traces clear" do
+      allow(mock_tracer).to receive(:trace).with("omnicache",
+                                                 hash_including(service: "omnicache",
+                                                                resource: "clear")).and_yield(mock_span)
+      store.clear
+      expect(mock_tracer).to have_received(:trace).with("omnicache",
+                                                        hash_including(service: "omnicache", resource: "clear"))
     end
   end
 end

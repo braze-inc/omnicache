@@ -2,6 +2,7 @@
 
 require "omnicache"
 require "timecop"
+require "datadog/tracing"
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
