@@ -42,11 +42,9 @@ module OmniCache
     # Reads a value from the store
     # @param key [String | Symbol] The key to read
     def read(key)
-      with_tracing("read") do |span|
-        normalized_key = key.to_s
-        span&.set_tag("key", normalized_key)
+      with_tracing("read") do |_|
         maybe_threadsafe do
-          entry = get_entry(normalized_key)
+          entry = get_entry(key.to_s)
           if entry
             @serializer.load(entry.value)
           end
@@ -61,27 +59,22 @@ module OmniCache
     # @param keys [Array<String>] The keys to read
     # @return [Hash] A hash mapping the keys provided to the values found
     def read_multi(*keys)
-      with_tracing("read_multi") do |span|
-        normalized_keys = []
+      with_tracing("read_multi") do |_|
         results = maybe_threadsafe do
           keys.each_with_object({}) do |key, hash|
-            normalized_key = key.to_s
-            normalized_keys << normalized_key
-            entry = get_entry(normalized_key)
+            entry = get_entry(key.to_s)
             if entry
               hash[key] = @serializer.load(entry.value)
             end
           end
         end
-        span&.set_tag("keys", normalized_keys.join(","))
         results
       end
     end
 
     def write(key, value, ttl_seconds: nil)
-      with_tracing("write") do |span|
+      with_tracing("write") do |_|
         normalized_key = key.to_s
-        span&.set_tag("key", normalized_key)
         maybe_threadsafe do
           delete_entry(normalized_key) if @is_lru || value.nil?
           entry = create_entry(normalized_key, value, ttl_seconds)
@@ -101,12 +94,10 @@ module OmniCache
     # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
     # @return [Hash] A hash mapping the keys provided to the values written
     def write_multi(entries, ttl_seconds: nil)
-      with_tracing("write_multi") do |span|
-        normalized_keys = []
+      with_tracing("write_multi") do |_|
         results = maybe_threadsafe do
           written_entries = entries.each_with_object({}) do |(key, value), hash|
             normalized_key = key.to_s
-            normalized_keys << normalized_key
             delete_entry(normalized_key) if @is_lru || value.nil?
             entry = create_entry(normalized_key, value, ttl_seconds)
             if entry
@@ -116,7 +107,6 @@ module OmniCache
           adjust_size if @is_lru
           written_entries
         end
-        span&.set_tag("keys", normalized_keys.join(","))
         results
       end
     end
@@ -160,11 +150,9 @@ module OmniCache
     # @param key [String] The key to delete
     # @return [Object|nil] The deleted value if it existed, nil otherwise
     def delete(key)
-      with_tracing("delete") do |span|
-        normalized_key = key.to_s
-        span&.set_tag("key", normalized_key)
+      with_tracing("delete") do |_|
         maybe_threadsafe do
-          entry = delete_entry(normalized_key)
+          entry = delete_entry(key.to_s)
           if entry
             @serializer.load(entry.value)
           end

@@ -32,7 +32,6 @@ RSpec.describe OmniCache::Store do
     before do
       allow(Datadog::Tracing).to receive(:tracer).and_return(mock_tracer)
       allow(mock_tracer).to receive(:trace).and_yield(mock_span)
-      allow(mock_span).to receive(:set_tag)
     end
 
     it "can store and retrieve a value" do
@@ -168,7 +167,6 @@ RSpec.describe OmniCache::Store do
         "omnicache",
         hash_including(service: "omnicache", resource: "write")
       )
-      expect(mock_span).to have_received(:set_tag).with("key", "test_key").twice
     end
 
     it "traces read_multi and write_multi" do
@@ -182,7 +180,6 @@ RSpec.describe OmniCache::Store do
         "omnicache",
         hash_including(service: "omnicache", resource: "write_multi")
       )
-      expect(mock_span).to have_received(:set_tag).with("keys", "key1,key2").twice
     end
 
     it "traces fetch" do
@@ -199,7 +196,6 @@ RSpec.describe OmniCache::Store do
         "omnicache",
         hash_including(service: "omnicache", resource: "write")
       )
-      expect(mock_span).to have_received(:set_tag).with("key", "test_key").twice
     end
 
     it "traces delete" do
@@ -208,7 +204,6 @@ RSpec.describe OmniCache::Store do
         "omnicache",
         hash_including(service: "omnicache", resource: "delete")
       )
-      expect(mock_span).to have_received(:set_tag).with("key", "test_key")
     end
 
     it "traces clear" do
