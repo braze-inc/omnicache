@@ -26,6 +26,13 @@ RSpec.describe OmniCache::Store do
 
   context "with the default configuration" do
     let(:store) { described_class.new }
+    let(:mock_tracer) { instance_double(Datadog::Tracing::Tracer) }
+    let(:mock_span) { instance_double(Datadog::Tracing::Span) }
+
+    before do
+      allow(Datadog::Tracing).to receive(:tracer).and_return(mock_tracer)
+      allow(mock_tracer).to receive(:trace).and_yield
+    end
 
     it "can store and retrieve a value" do
       store.write("key", "value")
@@ -147,6 +154,92 @@ RSpec.describe OmniCache::Store do
         ArgumentError,
         "Either :expires_in or :expires_at can be supplied, but not both"
       )
+    end
+
+    it "traces read and write" do
+      store.write("test_key", "test_value")
+      expect(store.read("test_key")).to eq("test_value")
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "read")
+      )
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "write")
+      )
+    end
+
+    it "traces read_multi and write_multi" do
+      store.write_multi({ "key1" => "value1", "key2" => "value2" })
+      expect(store.read_multi("key1", "key2")).to eq({ "key1" => "value1", "key2" => "value2" })
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "read_multi")
+      )
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "write_multi")
+      )
+    end
+
+    it "traces fetch" do
+      expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "fetch")
+      )
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "read")
+      )
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "write")
+      )
+    end
+
+    it "traces delete" do
+      store.delete("test_key")
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "delete")
+      )
+    end
+
+    it "traces clear" do
+      store.clear
+      expect(mock_tracer).to have_received(:trace).with(
+        "omnicache",
+        hash_including(service: "omnicache", resource: "clear")
+      )
+    end
+
+    describe "when Datadog is not available" do
+      before do
+        hide_const("Datadog::Tracing")
+      end
+
+      it "can read and write" do
+        store.write("test_key", "test_value")
+        expect(store.read("test_key")).to eq("test_value")
+      end
+
+      it "can read_multi and write_multi" do
+        store.write_multi({ "key1" => "value1", "key2" => "value2" })
+        expect(store.read_multi("key1", "key2")).to eq({ "key1" => "value1", "key2" => "value2" })
+      end
+
+      it "can fetch" do
+        expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
+      end
+
+      it "can delete" do
+        expect { store.delete("test_key") }.not_to raise_error
+      end
+
+      it "can clear" do
+        expect { store.clear }.not_to raise_error
+      end
     end
   end
 

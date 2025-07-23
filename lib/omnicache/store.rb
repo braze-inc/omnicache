@@ -42,10 +42,12 @@ module OmniCache
     # Reads a value from the store
     # @param key [String | Symbol] The key to read
     def read(key)
-      maybe_threadsafe do
-        entry = get_entry(key.to_s)
-        if entry
-          @serializer.load(entry.value)
+      with_tracing("read") do
+        maybe_threadsafe do
+          entry = get_entry(key.to_s)
+          if entry
+            @serializer.load(entry.value)
+          end
         end
       end
     end
@@ -57,24 +59,29 @@ module OmniCache
     # @param keys [Array<String>] The keys to read
     # @return [Hash] A hash mapping the keys provided to the values found
     def read_multi(*keys)
-      maybe_threadsafe do
-        keys.each_with_object({}) do |key, results|
-          entry = get_entry(key.to_s)
-          if entry
-            results[key] = @serializer.load(entry.value)
+      with_tracing("read_multi") do
+        results = maybe_threadsafe do
+          keys.each_with_object({}) do |key, hash|
+            entry = get_entry(key.to_s)
+            if entry
+              hash[key] = @serializer.load(entry.value)
+            end
           end
         end
+        results
       end
     end
 
     def write(key, value, ttl_seconds: nil)
-      normalized_key = key.to_s
-      maybe_threadsafe do
-        delete_entry(normalized_key) if @is_lru || value.nil?
-        entry = create_entry(normalized_key, value, ttl_seconds)
-        adjust_size if @is_lru
-        if entry
-          value
+      with_tracing("write") do
+        normalized_key = key.to_s
+        maybe_threadsafe do
+          delete_entry(normalized_key) if @is_lru || value.nil?
+          entry = create_entry(normalized_key, value, ttl_seconds)
+          adjust_size if @is_lru
+          if entry
+            value
+          end
         end
       end
     end
@@ -87,16 +94,19 @@ module OmniCache
     # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
     # @return [Hash] A hash mapping the keys provided to the values written
     def write_multi(entries, ttl_seconds: nil)
-      maybe_threadsafe do
-        results = entries.each_with_object({}) do |(key, value), hash|
-          normalized_key = key.to_s
-          delete_entry(normalized_key) if @is_lru || value.nil?
-          entry = create_entry(normalized_key, value, ttl_seconds)
-          if entry
-            hash[key] = value
+      with_tracing("write_multi") do
+        results = maybe_threadsafe do
+          written_entries = entries.each_with_object({}) do |(key, value), hash|
+            normalized_key = key.to_s
+            delete_entry(normalized_key) if @is_lru || value.nil?
+            entry = create_entry(normalized_key, value, ttl_seconds)
+            if entry
+              hash[key] = value
+            end
           end
+          adjust_size if @is_lru
+          written_entries
         end
-        adjust_size if @is_lru
         results
       end
     end
@@ -111,45 +121,51 @@ module OmniCache
     # @yield The block to compute the value if the key is not found
     # @return The cached value or the result of the block if the key was not found
     def fetch(key, options = {})
-      ttl_seconds = nil
+      with_tracing("fetch") do
+        ttl_seconds = nil
 
-      if options.key?(:expires_in) && options.key?(:expires_at)
-        raise ArgumentError, "Either :expires_in or :expires_at can be supplied, but not both"
-      end
-
-      if options[:expires_in]
-        unless options[:expires_in].is_a?(Integer)
-          raise ArgumentError, ":expires_in must be an Integer"
+        if options.key?(:expires_in) && options.key?(:expires_at)
+          raise ArgumentError, "Either :expires_in or :expires_at can be supplied, but not both"
         end
 
-        ttl_seconds = options[:expires_in]
-      elsif options[:expires_at]
-        unless options[:expires_at].is_a?(Time)
-          raise ArgumentError, ":expires_at must be a Time"
+        if options[:expires_in]
+          unless options[:expires_in].is_a?(Integer)
+            raise ArgumentError, ":expires_in must be an Integer"
+          end
+
+          ttl_seconds = options[:expires_in]
+        elsif options[:expires_at]
+          unless options[:expires_at].is_a?(Time)
+            raise ArgumentError, ":expires_at must be a Time"
+          end
+
+          ttl_seconds = options[:expires_at] - Time.now
         end
 
-        ttl_seconds = options[:expires_at] - Time.now
+        read(key) || write(key, yield, ttl_seconds: ttl_seconds)
       end
-
-      read(key) || write(key, yield, ttl_seconds: ttl_seconds)
     end
 
     # Deletes a value from the store
     # @param key [String] The key to delete
     # @return [Object|nil] The deleted value if it existed, nil otherwise
     def delete(key)
-      maybe_threadsafe do
-        entry = delete_entry(key.to_s)
-        if entry
-          @serializer.load(entry.value)
+      with_tracing("delete") do
+        maybe_threadsafe do
+          entry = delete_entry(key.to_s)
+          if entry
+            @serializer.load(entry.value)
+          end
         end
       end
     end
 
     def clear
-      maybe_threadsafe do
-        @data.clear
-        @current_size_bytes = 0
+      with_tracing("clear") do
+        maybe_threadsafe do
+          @data.clear
+          @current_size_bytes = 0
+        end
       end
     end
 
@@ -160,6 +176,20 @@ module OmniCache
     alias count size
 
     private
+
+    def with_tracing(resource, &block)
+      if defined?(Datadog::Tracing)
+        Datadog::Tracing.trace(
+          "omnicache",
+          service: "omnicache",
+          resource: resource,
+          type: Datadog::Tracing::Metadata::Ext::AppTypes::TYPE_CACHE,
+          &block
+        )
+      else
+        yield(nil)
+      end
+    end
 
     def check_serializer
       return unless @max_size_bytes
