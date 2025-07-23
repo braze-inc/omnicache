@@ -31,7 +31,7 @@ RSpec.describe OmniCache::Store do
 
     before do
       allow(Datadog::Tracing).to receive(:tracer).and_return(mock_tracer)
-      allow(mock_tracer).to receive(:trace).and_yield(mock_span)
+      allow(mock_tracer).to receive(:trace).and_yield
     end
 
     it "can store and retrieve a value" do
