@@ -79,8 +79,8 @@ RSpec.describe OmniCache::Store do
     end
 
     it "does not return a value that has expired" do
-      store.write("key", "value", ttl_seconds: 10)
-      store.write_multi({ "key2" => "value2" }, ttl_seconds: 10)
+      store.write("key", "value", expires_in: 10)
+      store.write_multi({ "key2" => "value2" }, expires_in: 10)
       Timecop.freeze(Time.now + 20) do
         expect(store.read("key")).to be_nil
         expect(store.read_multi("key2")).to eq({})
@@ -274,7 +274,7 @@ RSpec.describe OmniCache::Store do
       end
 
       it "removes expired entries first before evicting others" do
-        store.write("key1", "value1", ttl_seconds: 10)
+        store.write("key1", "value1", expires_in: 10)
         store.write("key2", "value2")
         store.read("key1")
 
@@ -300,7 +300,7 @@ RSpec.describe OmniCache::Store do
       end
 
       it "removes expired entries first before evicting others" do
-        store.write_multi({ "key1" => "value1" }, ttl_seconds: 10)
+        store.write_multi({ "key1" => "value1" }, expires_in: 10)
         store.write_multi({ "key2" => "value2" })
         store.read_multi("key1")
 
@@ -332,7 +332,7 @@ RSpec.describe OmniCache::Store do
       end
 
       it "removes expired entries first before evicting others" do
-        store.write("key1", "value1", ttl_seconds: 10)
+        store.write("key1", "value1", expires_in: 10)
         store.write("key2", "value2")
         store.read("key1")
 
@@ -360,7 +360,7 @@ RSpec.describe OmniCache::Store do
       end
 
       it "removes expired entries first before evicting others" do
-        store.write_multi({ "key1" => "value1" }, ttl_seconds: 10)
+        store.write_multi({ "key1" => "value1" }, expires_in: 10)
         store.write_multi({ "key2" => "value2" })
         store.read_multi("key1")
 

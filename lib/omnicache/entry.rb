@@ -5,9 +5,9 @@ module OmniCache
   class Entry
     attr_reader :value, :expires_at
 
-    def initialize(value, ttl_seconds: nil)
+    def initialize(value, expires_in: nil)
       @value = value
-      @expires_at = ttl_seconds ? Time.now + ttl_seconds : nil
+      @expires_at = expires_in ? Time.now + expires_in : nil
     end
 
     def expired?

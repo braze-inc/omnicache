@@ -3,7 +3,7 @@
 RSpec.describe OmniCache::Entry do
   describe "#expired?" do
     let!(:now) { Time.now }
-    let!(:entry) { described_class.new("value", ttl_seconds: 60) }
+    let!(:entry) { described_class.new("value", expires_in: 60) }
 
     it "returns false when no TTL is provided" do
       expect(entry.expired?).to be false

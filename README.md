@@ -40,7 +40,7 @@ store.write("key", "value")
 store.read("key")
 # => "value"
 
-store.write("key", "value", ttl_seconds: 10)
+store.write("key", "value", expires_in: 10)
 sleep(20)
 
 store.read("key")
@@ -63,7 +63,7 @@ OmniCache supports the following configuration options, provided as keyword argu
 
 | Option | Default | Description |
 | ------ | ------- | ----------- |
-| default_ttl_seconds | `nil` | The default TTL for all entries. When a TTL is provided explicitly to `write`, that TTL takes precedence. |
+| default_expires_in | `nil` | The default TTL for all entries. When a TTL is provided explicitly to `write`, that TTL takes precedence. |
 | max_entries | `nil` | The maximum number of entries to store. When this number is exceeded, the least recently used entries are removed. Expired entries are removed before removing any other entries. |
 | max_size_bytes | `nil` | The maximum total size of all entries. The size of an entry is the `bytesize` of the key plus the `bytesize` of the value. When this number is exceeded, the least recently used entries are removed. Expired entries are removed before removing any other entries. |
 | threadsafe | `true` | Whether or not the store should be threadsafe. Disabling this option may improve performance. |

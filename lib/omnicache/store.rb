@@ -4,11 +4,11 @@ require_relative "entry"
 
 module OmniCache
   class Store # :nodoc:
-    attr_reader :default_ttl_seconds, :max_entries, :max_size_bytes, :current_size_bytes, :threadsafe, :serializer
+    attr_reader :default_expires_in, :max_entries, :max_size_bytes, :current_size_bytes, :threadsafe, :serializer
 
     # Creates a new OmniCache store. All arguments are optional.
     #
-    # @param default_ttl_seconds [Integer] Default TTL for entries, in seconds
+    # @param default_expires_in [Integer] Default TTL for entries, in seconds
     # @param max_entries [Integer] Maximum number of entries to store. If exceeded, the store will evict the least
     #   recently used entries.
     # @param max_size_bytes [Integer] Maximum size of all entries in bytes. If exceeded, the store will evict the least
@@ -17,13 +17,13 @@ module OmniCache
     # @param serializer [Object] Object that responds to `dump` and `load` for serialization. When max_size_bytes is
     #   set, the serializer must produce objects that respond to `bytesize`.
     def initialize(
-      default_ttl_seconds: nil,
+      default_expires_in: nil,
       max_entries: nil,
       max_size_bytes: nil,
       threadsafe: true,
       serializer: Marshal
     )
-      @default_ttl_seconds = default_ttl_seconds
+      @default_expires_in = default_expires_in
       @max_entries = max_entries
       @max_size_bytes = max_size_bytes
       @threadsafe = threadsafe
@@ -72,12 +72,12 @@ module OmniCache
       end
     end
 
-    def write(key, value, ttl_seconds: nil)
+    def write(key, value, expires_in: nil)
       with_tracing("write") do
         normalized_key = key.to_s
         maybe_threadsafe do
           delete_entry(normalized_key) if @is_lru || value.nil?
-          entry = create_entry(normalized_key, value, ttl_seconds)
+          entry = create_entry(normalized_key, value, expires_in)
           adjust_size if @is_lru
           if entry
             value
@@ -91,15 +91,15 @@ module OmniCache
 
     # Writes multiple values at once to the store
     # @param entries [Hash] A hash mapping keys to values to write
-    # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
+    # @param expires_in [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
     # @return [Hash] A hash mapping the keys provided to the values written
-    def write_multi(entries, ttl_seconds: nil)
+    def write_multi(entries, expires_in: nil)
       with_tracing("write_multi") do
         results = maybe_threadsafe do
           written_entries = entries.each_with_object({}) do |(key, value), hash|
             normalized_key = key.to_s
             delete_entry(normalized_key) if @is_lru || value.nil?
-            entry = create_entry(normalized_key, value, ttl_seconds)
+            entry = create_entry(normalized_key, value, expires_in)
             if entry
               hash[key] = value
             end
@@ -122,7 +122,7 @@ module OmniCache
     # @return The cached value or the result of the block if the key was not found
     def fetch(key, options = {})
       with_tracing("fetch") do
-        ttl_seconds = nil
+        expires_in = nil
 
         if options.key?(:expires_in) && options.key?(:expires_at)
           raise ArgumentError, "Either :expires_in or :expires_at can be supplied, but not both"
@@ -133,16 +133,16 @@ module OmniCache
             raise ArgumentError, ":expires_in must be an Integer"
           end
 
-          ttl_seconds = options[:expires_in]
+          expires_in = options[:expires_in]
         elsif options[:expires_at]
           unless options[:expires_at].is_a?(Time)
             raise ArgumentError, ":expires_at must be a Time"
           end
 
-          ttl_seconds = options[:expires_at] - Time.now
+          expires_in = options[:expires_at] - Time.now
         end
 
-        read(key) || write(key, yield, ttl_seconds: ttl_seconds)
+        read(key) || write(key, yield, expires_in: expires_in)
       end
     end
 
@@ -259,13 +259,13 @@ module OmniCache
       entry
     end
 
-    def create_entry(key, value, ttl_seconds)
+    def create_entry(key, value, expires_in)
       serialized_value = @serializer.dump(value)
       return nil if serialized_value.nil?
 
       entry = Entry.new(
         serialized_value,
-        ttl_seconds: ttl_seconds || @default_ttl_seconds
+        expires_in: expires_in || @default_expires_in
       )
 
       @data[key] = entry
