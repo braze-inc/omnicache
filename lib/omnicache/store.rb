@@ -42,7 +42,7 @@ module OmniCache
     # Reads a value from the store
     # @param key [String | Symbol] The key to read
     def read(key)
-      with_tracing("read") do
+      with_tracing("read", key: key) do
         maybe_threadsafe do
           entry = get_entry(key.to_s)
           if entry
@@ -59,7 +59,7 @@ module OmniCache
     # @param keys [Array<String>] The keys to read
     # @return [Hash] A hash mapping the keys provided to the values found
     def read_multi(*keys)
-      with_tracing("read_multi") do
+      with_tracing("read_multi", key: keys.join(", ")) do
         results = maybe_threadsafe do
           keys.each_with_object({}) do |key, hash|
             entry = get_entry(key.to_s)
@@ -73,7 +73,7 @@ module OmniCache
     end
 
     def write(key, value, ttl_seconds: nil)
-      with_tracing("write") do
+      with_tracing("write", key: key) do
         normalized_key = key.to_s
         maybe_threadsafe do
           delete_entry(normalized_key) if @is_lru || value.nil?
@@ -94,7 +94,7 @@ module OmniCache
     # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
     # @return [Hash] A hash mapping the keys provided to the values written
     def write_multi(entries, ttl_seconds: nil)
-      with_tracing("write_multi") do
+      with_tracing("write_multi", key: entries.keys.join(", ")) do
         results = maybe_threadsafe do
           written_entries = entries.each_with_object({}) do |(key, value), hash|
             normalized_key = key.to_s
@@ -121,7 +121,7 @@ module OmniCache
     # @yield The block to compute the value if the key is not found
     # @return The cached value or the result of the block if the key was not found
     def fetch(key, options = {})
-      with_tracing("fetch") do
+      with_tracing("fetch", key: key) do
         ttl_seconds = nil
 
         if options.key?(:expires_in) && options.key?(:expires_at)
@@ -150,7 +150,7 @@ module OmniCache
     # @param key [String] The key to delete
     # @return [Object|nil] The deleted value if it existed, nil otherwise
     def delete(key)
-      with_tracing("delete") do
+      with_tracing("delete", key: key) do
         maybe_threadsafe do
           entry = delete_entry(key.to_s)
           if entry
@@ -177,12 +177,13 @@ module OmniCache
 
     private
 
-    def with_tracing(resource, &block)
+    def with_tracing(resource, key: nil, &block)
       if defined?(Datadog::Tracing)
         Datadog::Tracing.trace(
           "omnicache",
           service: "omnicache",
           resource: resource,
+          tags: { key: key.to_s[...250] },
           type: Datadog::Tracing::Metadata::Ext::AppTypes::TYPE_CACHE,
           &block
         )
