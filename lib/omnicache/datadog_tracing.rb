@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module OmniCache
+  # Wraps Store read and write operations with Datadog tracing spans.
   module DatadogTracing
     def read(key)
       with_tracing("read") { super }

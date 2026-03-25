@@ -233,12 +233,9 @@ RSpec.describe OmniCache::Store do
         expect(store.read("test_key")).to eq("test_value")
       end
 
-      context "with active_support_compatibility" do
-        let(:store) { described_class.new(datadog_tracing: true, active_support_compatibility: true) }
-
-        it "can fetch" do
-          expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
-        end
+      it "can fetch with active_support_compatibility" do
+        store = described_class.new(datadog_tracing: true, active_support_compatibility: true)
+        expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
       end
     end
   end
@@ -351,7 +348,9 @@ RSpec.describe OmniCache::Store do
     end
 
     describe "using #read_multi & #write_multi" do
-      let(:store) { described_class.new(max_size_bytes: 20, serializer: string_serializer, active_support_compatibility: true) }
+      let(:store) do
+        described_class.new(max_size_bytes: 20, serializer: string_serializer, active_support_compatibility: true)
+      end
 
       it "evicts the least recently used entry when the size is exceeded" do
         store.write_multi({ "key1" => "value1", "key2" => "value2" })

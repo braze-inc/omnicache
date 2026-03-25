@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module OmniCache
+  # Provides ActiveSupport::Cache-compatible methods (read_multi, write_multi, fetch).
   module ActiveSupportCompatibility
     # Reads multiple values at once from the store
     # @param keys [Array<String>] The keys to read
