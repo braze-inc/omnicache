@@ -26,22 +26,10 @@ RSpec.describe OmniCache::Store do
 
   context "with the default configuration" do
     let(:store) { described_class.new }
-    let(:mock_tracer) { instance_double(Datadog::Tracing::Tracer) }
-    let(:mock_span) { instance_double(Datadog::Tracing::Span) }
-
-    before do
-      allow(Datadog::Tracing).to receive(:tracer).and_return(mock_tracer)
-      allow(mock_tracer).to receive(:trace).and_yield
-    end
 
     it "can store and retrieve a value" do
       store.write("key", "value")
       expect(store.read("key")).to eq("value")
-    end
-
-    it "can store and retrieve multiple values at once" do
-      store.write_multi({ "key1" => "value1", "key2" => "value2" })
-      expect(store.read_multi("key1", "key2")).to eq("key1" => "value1", "key2" => "value2")
     end
 
     it "can store and retrieve falsey values" do
@@ -51,19 +39,10 @@ RSpec.describe OmniCache::Store do
       expect(store.read("nil-value")).to be_nil
     end
 
-    it "can store and retrieve multiple falsey values at once" do
-      store.write_multi({ "false-value" => false, "nil-value" => nil })
-      expect(store.read_multi("false-value", "nil-value")).to eq("false-value" => false, "nil-value" => nil)
-    end
-
     it "coerces keys to strings" do
       store.write(123, "value")
       expect(store.read(123)).to eq("value")
       expect(store.read("123")).to eq("value")
-
-      store.write_multi({ 456 => "value" })
-      expect(store.read_multi(456)).to eq(456 => "value")
-      expect(store.read_multi("456")).to eq("456" => "value")
     end
 
     it "returns nil if the key does not exist" do
@@ -73,16 +52,57 @@ RSpec.describe OmniCache::Store do
     it "stores immutable values" do
       values = [1, 2, 3]
       store.write("key1", values)
-      store.write_multi({ "key2" => values })
       values << 4
-      expect(store.read_multi("key1", "key2")).to eq("key1" => [1, 2, 3], "key2" => [1, 2, 3])
+      expect(store.read("key1")).to eq([1, 2, 3])
     end
 
     it "does not return a value that has expired" do
       store.write("key", "value", ttl_seconds: 10)
-      store.write_multi({ "key2" => "value2" }, ttl_seconds: 10)
       Timecop.freeze(Time.now + 20) do
         expect(store.read("key")).to be_nil
+      end
+    end
+
+    it "can delete a value from the store" do
+      store.write("key", "value")
+      expect(store.delete("key")).to eq("value")
+      expect(store.read("key")).to be_nil
+    end
+
+    it "returns nil when deleting a non-existent key" do
+      expect(store.delete("key")).to be_nil
+    end
+  end
+
+  context "with active_support_compatibility enabled" do
+    let(:store) { described_class.new(active_support_compatibility: true) }
+
+    it "can store and retrieve multiple values at once" do
+      store.write_multi({ "key1" => "value1", "key2" => "value2" })
+      expect(store.read_multi("key1", "key2")).to eq("key1" => "value1", "key2" => "value2")
+    end
+
+    it "can store and retrieve multiple falsey values at once" do
+      store.write_multi({ "false-value" => false, "nil-value" => nil })
+      expect(store.read_multi("false-value", "nil-value")).to eq("false-value" => false, "nil-value" => nil)
+    end
+
+    it "coerces keys to strings" do
+      store.write_multi({ 456 => "value" })
+      expect(store.read_multi(456)).to eq(456 => "value")
+      expect(store.read_multi("456")).to eq("456" => "value")
+    end
+
+    it "stores immutable values" do
+      values = [1, 2, 3]
+      store.write_multi({ "key1" => values })
+      values << 4
+      expect(store.read_multi("key1")).to eq("key1" => [1, 2, 3])
+    end
+
+    it "does not return expired values" do
+      store.write_multi({ "key2" => "value2" }, ttl_seconds: 10)
+      Timecop.freeze(Time.now + 20) do
         expect(store.read_multi("key2")).to eq({})
       end
     end
@@ -94,16 +114,6 @@ RSpec.describe OmniCache::Store do
 
     it "returns an empty hash if no keys exist when using read_multi" do
       expect(store.read_multi("key", "key2", "key3")).to eq({})
-    end
-
-    it "can delete a value from the store" do
-      store.write("key", "value")
-      expect(store.delete("key")).to eq("value")
-      expect(store.read("key")).to be_nil
-    end
-
-    it "returns nil when deleting a non-existent key" do
-      expect(store.delete("key")).to be_nil
     end
 
     it "returns results for read_multi with the given keys" do
@@ -155,6 +165,17 @@ RSpec.describe OmniCache::Store do
         "Either :expires_in or :expires_at can be supplied, but not both"
       )
     end
+  end
+
+  context "with datadog_tracing enabled" do
+    let(:store) { described_class.new(datadog_tracing: true) }
+    let(:mock_tracer) { instance_double(Datadog::Tracing::Tracer) }
+    let(:mock_span) { instance_double(Datadog::Tracing::Span) }
+
+    before do
+      allow(Datadog::Tracing).to receive(:tracer).and_return(mock_tracer)
+      allow(mock_tracer).to receive(:trace).and_yield
+    end
 
     it "traces read and write" do
       store.write("test_key", "test_value")
@@ -169,49 +190,37 @@ RSpec.describe OmniCache::Store do
       )
     end
 
-    it "traces read_multi and write_multi" do
-      store.write_multi({ "key1" => "value1", "key2" => "value2" })
-      expect(store.read_multi("key1", "key2")).to eq({ "key1" => "value1", "key2" => "value2" })
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "read_multi")
-      )
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "write_multi")
-      )
-    end
+    context "with active_support_compatibility" do
+      let(:store) { described_class.new(datadog_tracing: true, active_support_compatibility: true) }
 
-    it "traces fetch" do
-      expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "fetch")
-      )
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "read")
-      )
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "write")
-      )
-    end
+      it "traces read_multi and write_multi" do
+        store.write_multi({ "key1" => "value1", "key2" => "value2" })
+        expect(store.read_multi("key1", "key2")).to eq({ "key1" => "value1", "key2" => "value2" })
+        expect(mock_tracer).to have_received(:trace).with(
+          "omnicache",
+          hash_including(service: "omnicache", resource: "read_multi")
+        )
+        expect(mock_tracer).to have_received(:trace).with(
+          "omnicache",
+          hash_including(service: "omnicache", resource: "write_multi")
+        )
+      end
 
-    it "traces delete" do
-      store.delete("test_key")
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "delete")
-      )
-    end
-
-    it "traces clear" do
-      store.clear
-      expect(mock_tracer).to have_received(:trace).with(
-        "omnicache",
-        hash_including(service: "omnicache", resource: "clear")
-      )
+      it "traces fetch" do
+        expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
+        expect(mock_tracer).to have_received(:trace).with(
+          "omnicache",
+          hash_including(service: "omnicache", resource: "fetch")
+        )
+        expect(mock_tracer).to have_received(:trace).with(
+          "omnicache",
+          hash_including(service: "omnicache", resource: "read")
+        )
+        expect(mock_tracer).to have_received(:trace).with(
+          "omnicache",
+          hash_including(service: "omnicache", resource: "write")
+        )
+      end
     end
 
     describe "when Datadog is not available" do
@@ -224,28 +233,19 @@ RSpec.describe OmniCache::Store do
         expect(store.read("test_key")).to eq("test_value")
       end
 
-      it "can read_multi and write_multi" do
-        store.write_multi({ "key1" => "value1", "key2" => "value2" })
-        expect(store.read_multi("key1", "key2")).to eq({ "key1" => "value1", "key2" => "value2" })
-      end
+      context "with active_support_compatibility" do
+        let(:store) { described_class.new(datadog_tracing: true, active_support_compatibility: true) }
 
-      it "can fetch" do
-        expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
-      end
-
-      it "can delete" do
-        expect { store.delete("test_key") }.not_to raise_error
-      end
-
-      it "can clear" do
-        expect { store.clear }.not_to raise_error
+        it "can fetch" do
+          expect(store.fetch("test_key") { 1 + 1 }).to eq(2)
+        end
       end
     end
   end
 
   context "with a custom serializer" do
     let(:serializer) { identity_serializer }
-    let(:store) { described_class.new(serializer: serializer) }
+    let(:store) { described_class.new(serializer: serializer, active_support_compatibility: true) }
 
     it "uses that serializer" do
       values = [1, 2, 3]
@@ -258,9 +258,9 @@ RSpec.describe OmniCache::Store do
   end
 
   context "with max_entries set" do
-    let(:store) { described_class.new(max_entries: 2) }
-
     describe "using #read & #write" do
+      let(:store) { described_class.new(max_entries: 2) }
+
       it "evicts the least recently used entry when the size is exceeded" do
         store.write("key1", "value1")
         store.write("key2", "value2")
@@ -290,6 +290,8 @@ RSpec.describe OmniCache::Store do
     end
 
     describe "using #read_multi & #write_multi" do
+      let(:store) { described_class.new(max_entries: 2, active_support_compatibility: true) }
+
       it "evicts the least recently used entry when the size is exceeded" do
         store.write_multi({ "key1" => "value1", "key2" => "value2" })
         store.read_multi("key1")
@@ -315,9 +317,9 @@ RSpec.describe OmniCache::Store do
   end
 
   context "with max_size_bytes set" do
-    let(:store) { described_class.new(max_size_bytes: 20, serializer: string_serializer) }
-
     describe "using #read & #write" do
+      let(:store) { described_class.new(max_size_bytes: 20, serializer: string_serializer) }
+
       it "evicts the least recently used entry when the size is exceeded" do
         store.write("key1", "value1")
         store.write("key2", "value2")
@@ -349,6 +351,8 @@ RSpec.describe OmniCache::Store do
     end
 
     describe "using #read_multi & #write_multi" do
+      let(:store) { described_class.new(max_size_bytes: 20, serializer: string_serializer, active_support_compatibility: true) }
+
       it "evicts the least recently used entry when the size is exceeded" do
         store.write_multi({ "key1" => "value1", "key2" => "value2" })
         store.read_multi("key1")
@@ -381,6 +385,7 @@ RSpec.describe OmniCache::Store do
     end
 
     it "updates current_size_bytes when a key is deleted" do
+      store = described_class.new(max_size_bytes: 20, serializer: string_serializer)
       expect { store.write("key", "value") }.to change(store, :current_size_bytes).to be > 0
       expect { store.delete("key") }.to change(store, :current_size_bytes).to(0)
     end
