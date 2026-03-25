@@ -7,7 +7,7 @@ module OmniCache
       with_tracing("read", key: key) { super }
     end
 
-    def write(key, value, ttl_seconds: nil)
+    def write(key, value, *args)
       with_tracing("write", key: key) { super }
     end
 
@@ -15,11 +15,11 @@ module OmniCache
       with_tracing("read_multi", key: keys.join(", ")) { super }
     end
 
-    def write_multi(entries, ttl_seconds: nil)
+    def write_multi(entries, *args)
       with_tracing("write_multi", key: entries.keys.join(", ")) { super }
     end
 
-    def fetch(key, options = {}, &block)
+    def fetch(key, *args, &block)
       with_tracing("fetch", key: key) { super }
     end
 
