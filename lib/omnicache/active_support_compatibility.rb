@@ -3,6 +3,17 @@
 module OmniCache
   # Provides ActiveSupport::Cache-compatible methods (read_multi, write_multi, fetch).
   module ActiveSupportCompatibility
+    # Writes a value to the store using ActiveSupport-compatible options.
+    #
+    # @param key [String | Symbol] The key to write
+    # @param value [Object] The value to write
+    # @param options [Hash] Options hash
+    # @option options [Integer] :expires_in Number of seconds until the entry expires
+    # @option options [Time] :expires_at Time at which the entry expires
+    def write(key, value, options = {})
+      super(key, value, ttl_seconds: ttl_from_options(options))
+    end
+
     # Reads multiple values at once from the store
     # @param keys [Array<String>] The keys to read
     # @return [Hash] A hash mapping the keys provided to the values found
@@ -19,9 +30,11 @@ module OmniCache
 
     # Writes multiple values at once to the store
     # @param entries [Hash] A hash mapping keys to values to write
-    # @param ttl_seconds [Integer] TTL for the new entries, in seconds. Uses the default TTL if not provided.
+    # @param options [Hash] Options hash
+    # @option options [Integer] :expires_in Number of seconds until the entries expire
     # @return [Hash] A hash mapping the keys provided to the values written
-    def write_multi(entries, ttl_seconds: nil)
+    def write_multi(entries, options = {})
+      ttl_seconds = ttl_from_options(options)
       maybe_threadsafe do
         written_entries = entries.each_with_object({}) do |(key, value), hash|
           normalized_key = key.to_s
@@ -40,33 +53,31 @@ module OmniCache
     # If it's not in the store, evaluate the given block and write the result to the store.
     #
     # @param key [String] The key to read
-    # @param options [Hash] Optional options for the fetch operation
-    # @option options [Integer] :expires_in The number of seconds until the cache entry expires
-    # @option options [Time] :expires_at The time at which the cache entry expires
+    # @param options [Hash] Options hash
+    # @option options [Integer] :expires_in Number of seconds until the entry expires
+    # @option options [Time] :expires_at Time at which the entry expires
     # @yield The block to compute the value if the key is not found
     # @return The cached value or the result of the block if the key was not found
     def fetch(key, options = {})
-      ttl_seconds = nil
+      read(key) || write(key, yield, options)
+    end
 
+    private
+
+    def ttl_from_options(options)
       if options.key?(:expires_in) && options.key?(:expires_at)
         raise ArgumentError, "Either :expires_in or :expires_at can be supplied, but not both"
       end
 
       if options[:expires_in]
-        unless options[:expires_in].is_a?(Integer)
-          raise ArgumentError, ":expires_in must be an Integer"
-        end
+        raise ArgumentError, ":expires_in must be an Integer" unless options[:expires_in].is_a?(Integer)
 
-        ttl_seconds = options[:expires_in]
+        options[:expires_in]
       elsif options[:expires_at]
-        unless options[:expires_at].is_a?(Time)
-          raise ArgumentError, ":expires_at must be a Time"
-        end
+        raise ArgumentError, ":expires_at must be a Time" unless options[:expires_at].is_a?(Time)
 
-        ttl_seconds = options[:expires_at] - Time.now
+        options[:expires_at] - Time.now
       end
-
-      read(key) || write(key, yield, ttl_seconds: ttl_seconds)
     end
   end
 end
